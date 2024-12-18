@@ -1,1 +1,7 @@
 /target
+
+*.log
+
+.vscode/
+
+mod_name/
