@@ -14,7 +14,7 @@ fn gather_inputs() -> (String, String) {
     let c_slot: String = loop {
         // run the input
         let mut input = String::new();
-        print!("Enter the costume slot to reslot to (example: for c00, enter 00): c");
+        print!("Enter the costume slot to re-slot to (example: for c00, enter 00): c");
         std::io::stdout().flush().unwrap();
         std::io::stdin()
             .read_line(&mut input)
@@ -55,34 +55,36 @@ fn gather_inputs() -> (String, String) {
                 process::exit(-1); // exit if user closes file dialog
             }
             Err(e) => {
-                eprintln!("Error occurred when selecting mod directory: {:?}", e);
+                eprintln!("Error occurred when selecting mod folder: {:?}", e);
             }
         }
     };
     // confirm path in unix-style
     let root: String = root.to_string_lossy().to_string();
     println!(
-        "\x1b[32m✔\x1b[0m Mod path read as: {:?}",
+        "\x1b[32m✔\x1b[0m Mod read from: {:?}",
         root.replace("\\", "/")
     );
 
     (c_slot, root)
 }
 
-// parse mod file for c-slots and replace them
+// parse and re-slot mod
 fn reslotter(c_slot: String, root: String) {
+    // patterns to search for
     let c_pattern = Regex::new(r"c\d\d").unwrap();
+    let ui_pattern = Regex::new(r"^(chara_\d+_[a-zA-Z]+_)\d{2}(\.bntx)$").unwrap();
+    let config_pattern = Regex::new(r"(?i)^config\.json$").unwrap();
 
-    let entries: Vec<_> = WalkDir::new(&root)
+    // sort by descending depth => avoids overwriting dirs while within them
+    let mut sorted_entries: Vec<_> = WalkDir::new(&root)
         .into_iter()
         .filter_map(|entry| entry.ok())
         .collect();
+    sorted_entries.sort_by(|a, b| b.depth().cmp(&a.depth()));
 
-    // sort entries by decreasing depth
-    let mut sorted_entires: Vec<walkdir::DirEntry> = entries;
-    sorted_entires.sort_by(|a, b| b.depth().cmp(&a.depth()));
-
-    for entry in sorted_entires {
+    // search each entry for patterns
+    for entry in sorted_entries {
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         // detect cXY pattern
@@ -98,16 +100,47 @@ fn reslotter(c_slot: String, root: String) {
 
             if let Err(e) = rename(current_path, &new_path) {
                 eprintln!(
-                    "Failed to rename {:?} to {:?}, {}",
+                    "Failed to re-slot {:?} to {:?}, {}",
                     current_path, new_path, e
                 );
             } else {
                 println!(
-                    "\x1b[32m✔\x1b[0m Renamed {:?} to {:?}",
+                    "\x1b[32m✔\x1b[0m Re-slotted {:?} to {:?}",
                     current_path.file_name().unwrap(),
                     new_path.file_name().unwrap()
                 );
             }
+        }
+        // detect ui file pattern
+        else if ui_pattern.is_match(&file_name) {
+            let new_file_name = ui_pattern.replace(&file_name, |caps: &regex::Captures| {
+                format!("{}{}{}", &caps[1], c_slot, &caps[2])
+            });
+
+            let current_path = entry.path();
+
+            let new_path = current_path
+                .parent()
+                .unwrap()
+                .join(new_file_name.to_string());
+
+            if let Err(e) = rename(current_path, &new_path) {
+                eprintln!(
+                    "Failed to re-slot {:?} to {:?}, {}",
+                    current_path, new_path, e
+                );
+            } else {
+                println!(
+                    "\x1b[32m✔\x1b[0m Re-slotted {:?} to {:?}",
+                    current_path.file_name().unwrap(),
+                    new_path.file_name().unwrap()
+                );
+            }
+        }
+        // detect config file
+        else if config_pattern.is_match(&file_name) {
+            /*TODO: config.json open and edit here
+            https://doc.rust-lang.org/std/fs/struct.File.html */
         }
     }
 }
