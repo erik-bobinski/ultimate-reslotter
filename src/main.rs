@@ -1,6 +1,11 @@
 use native_dialog::FileDialog;
 use regex::Regex;
-use std::{fs::rename, io::Write, path::PathBuf, process};
+use std::{
+    fs::{rename, File},
+    io::{Read, Write},
+    path::PathBuf,
+    process,
+};
 use walkdir::WalkDir;
 
 fn main() {
@@ -10,6 +15,9 @@ fn main() {
 
 // gather and validate proper mod path and c-slot
 fn gather_inputs() -> (String, String) {
+    let check_mark = "\x1b[32m✔\x1b[0m";
+    let cross_mark = "\x1b[31m✘\x1b[0m";
+
     // take user-input of costume slot
     let c_slot: String = loop {
         // run the input
@@ -18,7 +26,7 @@ fn gather_inputs() -> (String, String) {
         std::io::stdout().flush().unwrap();
         std::io::stdin()
             .read_line(&mut input)
-            .expect("Failed to read input");
+            .expect(format!("{} Failed to read input", cross_mark).as_str());
 
         // filter out whitespace
         let input: String = input.chars().filter(|c| !c.is_whitespace()).collect();
@@ -32,14 +40,14 @@ fn gather_inputs() -> (String, String) {
             if let (Some(_first), Some(_second)) = (first, second) {
                 break input;
             } else {
-                println!("Make sure you enter integers!\n")
+                println!("{} Make sure you enter integers!\n", cross_mark);
             }
         } else {
-            println!("Only enter two integers for the slot!\n")
+            println!("{} Only enter two integers for the slot!\n", cross_mark);
         }
     };
     // confirm c-slot target
-    println!("\x1b[32m✔\x1b[0m Costume slot read as c{}", c_slot);
+    println!("{} Costume slot read as c{}", check_mark, c_slot);
 
     // take user-input of mod path
     let root: PathBuf = loop {
@@ -51,18 +59,22 @@ fn gather_inputs() -> (String, String) {
                 break path;
             }
             Ok(None) => {
-                println!("No mod folder selected");
+                println!("{} No mod folder selected", cross_mark);
                 process::exit(-1); // exit if user closes file dialog
             }
             Err(e) => {
-                eprintln!("Error occurred when selecting mod folder: {:?}", e);
+                eprintln!(
+                    "{} Error occurred when selecting mod folder: {:?}",
+                    cross_mark, e
+                );
             }
         }
     };
     // confirm path in unix-style
     let root: String = root.to_string_lossy().to_string();
     println!(
-        "\x1b[32m✔\x1b[0m Mod read from: {:?}",
+        "{} Mod read from: {:?}",
+        check_mark,
         root.replace("\\", "/")
     );
 
@@ -71,9 +83,12 @@ fn gather_inputs() -> (String, String) {
 
 // parse and re-slot mod
 fn reslotter(c_slot: String, root: String) {
+    let check_mark = "\x1b[32m✔\x1b[0m";
+    let cross_mark = "\x1b[31m✘\x1b[0m";
+
     // patterns to search for
     let c_pattern = Regex::new(r"c\d\d").unwrap();
-    let ui_pattern = Regex::new(r"^(chara_\d+_[a-zA-Z]+_)\d{2}(\.bntx)$").unwrap();
+    let ui_pattern = Regex::new(r"(chara_\d+_[a-zA-Z]+_)\d{2}(\.bntx)").unwrap();
     let config_pattern = Regex::new(r"(?i)^config\.json$").unwrap();
 
     // sort by descending depth => avoids overwriting dirs while within them
@@ -100,12 +115,13 @@ fn reslotter(c_slot: String, root: String) {
 
             if let Err(e) = rename(current_path, &new_path) {
                 eprintln!(
-                    "Failed to re-slot {:?} to {:?}, {}",
-                    current_path, new_path, e
+                    "{} Failed to re-slot {:?} to {:?}, {}",
+                    cross_mark, current_path, new_path, e
                 );
             } else {
                 println!(
-                    "\x1b[32m✔\x1b[0m Re-slotted {:?} to {:?}",
+                    "{} Re-slotted {:?} to {:?}",
+                    check_mark,
                     current_path.file_name().unwrap(),
                     new_path.file_name().unwrap()
                 );
@@ -126,12 +142,13 @@ fn reslotter(c_slot: String, root: String) {
 
             if let Err(e) = rename(current_path, &new_path) {
                 eprintln!(
-                    "Failed to re-slot {:?} to {:?}, {}",
-                    current_path, new_path, e
+                    "{} Failed to re-slot {:?} to {:?}, {}",
+                    cross_mark, current_path, new_path, e
                 );
             } else {
                 println!(
-                    "\x1b[32m✔\x1b[0m Re-slotted {:?} to {:?}",
+                    "{} Re-slotted {:?} to {:?}",
+                    check_mark,
                     current_path.file_name().unwrap(),
                     new_path.file_name().unwrap()
                 );
@@ -139,8 +156,29 @@ fn reslotter(c_slot: String, root: String) {
         }
         // detect config file
         else if config_pattern.is_match(&file_name) {
-            /*TODO: config.json open and edit here
-            https://doc.rust-lang.org/std/fs/struct.File.html */
+            let mut file = File::open(entry.path()).unwrap();
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).unwrap();
+
+            // replace all cXY patterns in json string
+            let contents_with_c = c_pattern.replace_all(&contents, format!("c{}", c_slot));
+
+            // replace all ui patterns in json string
+            let new_contents = ui_pattern
+                .replace_all(&contents_with_c, |caps: &regex::Captures| {
+                    format!("{}{}{}", &caps[1], c_slot, &caps[2])
+                })
+                .to_string();
+
+            // write re-slotted contents to config file
+            let mut file = File::create(entry.path()).unwrap();
+            file.write_all(new_contents.as_bytes()).unwrap();
+
+            println!(
+                "{} Updated {:?}",
+                check_mark,
+                entry.path().file_name().unwrap()
+            );
         }
     }
 }
