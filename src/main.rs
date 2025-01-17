@@ -1,5 +1,5 @@
-use native_dialog::FileDialog;
 use regex::Regex;
+use rfd::FileDialog;
 use std::{
     fs::{rename, File},
     io::{Read, Write},
@@ -15,6 +15,7 @@ fn main() {
 
 // gather and validate proper mod path and c-slot
 fn gather_inputs() -> (String, String) {
+    // terminal i/o icons
     let check_mark = "\x1b[32m✔\x1b[0m";
     let cross_mark = "\x1b[31m✘\x1b[0m";
 
@@ -51,27 +52,22 @@ fn gather_inputs() -> (String, String) {
 
     // take user-input of mod path
     let root: PathBuf = loop {
-        let root: Result<Option<PathBuf>, native_dialog::Error> =
-            FileDialog::new().set_location("~").show_open_single_dir();
+        let root: Option<PathBuf> = FileDialog::new()
+            .set_title("Select Mod Folder")
+            .set_directory("~")
+            .pick_folder();
 
         match root {
-            Ok(Some(path)) => {
-                break path;
-            }
-            Ok(None) => {
+            Some(path) => break path,
+            None => {
                 println!("{} No mod folder selected", cross_mark);
                 process::exit(-1); // exit if user closes file dialog
             }
-            Err(e) => {
-                eprintln!(
-                    "{} Error occurred when selecting mod folder: {:?}",
-                    cross_mark, e
-                );
-            }
         }
     };
+
     // confirm path in unix-style
-    let root: String = root.to_string_lossy().to_string();
+    let root = root.display().to_string();
     println!(
         "{} Mod read from: {:?}",
         check_mark,
